@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Babylon Template</title>
+    <style>
+        html,
+        body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+    </style>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://code.jquery.com/pep/0.4.3/pep.js"></script>
+</head>
+
+<body>
+    <canvas id="renderCanvas" touch-action="none"></canvas> <!-- touch-action="none" for best results from PEP -->
+    <script>
+        // canvas 要素を取得
+        const canvas = document.getElementById("renderCanvas");
+        // BABYLON 3D エンジンを作成
+        const engine = new BABYLON.Engine(canvas, true);
+
+        var createScene = function () {
+            var scene = new BABYLON.Scene(engine);
+            var camera = new BABYLON.Camera("camera1", BABYLON.Vector3.Zero(), scene);
+
+            return new Promise((resolve) => {
+                BABYLON.SceneLoader.Append("https://www.babylonjs.com/Scenes/Espilit/",
+                    "espilit.babylon", scene, async function () {
+                        scene.activeCamera.attachControl(canvas, false);
+
+                        var xr = await scene.createDefaultXRExperienceAsync({ floorMeshes: [scene.getMeshByName("Sols")] });
+
+                        xr.baseExperience.camera.position.y += 1;
+
+                        const cameraPosition = xr.baseExperience.camera.position;
+                        const cameraForward = xr.baseExperience.camera.getForwardRay().direction;
+
+                        console.log(`Camera position: x=${cameraPosition.x}, y=${cameraPosition.y}, z=${cameraPosition.z}`);
+                        console.log(`Camera forward: x=${cameraForward.x}, y=${cameraForward.y}, z=${cameraForward.z}`);
+
+                        resolve(scene);
+                    });
+            });
+        };
+
+        function screenShare(scene, box) {
+            // マテリアルを作成
+            const videoMaterial = new BABYLON.StandardMaterial("videoMaterial", scene);
+
+            // HTMLVideoElementを作成
+            const videoElement = document.createElement("video");
+            videoElement.autoplay = true;
+            videoElement.playsInline = true;
+            videoElement.muted = true;
+
+            // 画面共有を取得
+            navigator.mediaDevices.getDisplayMedia({ video: true })
+                .then(function (stream) {
+                    videoElement.srcObject = stream;
+
+                    // 動画のメタデータがロードされたら処理を続ける
+                    videoElement.onloadedmetadata = function () {
+                        videoElement.play(); // 動画の再生を開始
+
+                        // DynamicTextureにvideoElementを渡す
+                        const videoTexture = new BABYLON.DynamicTexture(
+                            "videoTexture",
+                            { width: 512, height: 512 },
+                            scene,
+                            true // trueでミップマップを有効化
+                        );
+
+                        // 毎フレームでテクスチャを更新
+                        scene.registerBeforeRender(function () {
+                            videoTexture.getContext().drawImage(videoElement, 0, 0, videoTexture.getSize().width, videoTexture.getSize().height);
+                            videoTexture.update();
+                        });
+
+                        // ビデオテクスチャをマテリアルに適用
+                        videoMaterial.diffuseTexture = videoTexture;
+                        videoMaterial.emissiveColor = new BABYLON.Color3(1, 1, 1); // エミッシブ色を設定
+                        box.material = videoMaterial;
+
+                        // ストリームが停止したときにリソースを解放
+                        stream.getVideoTracks()[0].onended = function () {
+                            videoTexture.dispose();
+                            videoMaterial.dispose();
+                            box.dispose();
+                        };
+                    };
+
+                    videoElement.onerror = function (error) {
+                        console.error("ビデオのエラー:", error);
+                    };
+                })
+                .catch(function (error) {
+                    console.error("画面共有の取得に失敗しました:", error);
+                });
+        }
+
+        async function init() {
+            const scene = await createScene();
+
+            console.log(`x=${scene.activeCamera.position}`)
+
+            const boxSize = 25;
+            const boxDistance = 9.5;
+
+            let box = BABYLON.MeshBuilder.CreateBox("box", { width: boxSize / 9, height: boxSize / 16 }, scene);
+            box.position.x = scene.activeCamera.position.x;
+            box.position.y = scene.activeCamera.position.y;
+            box.position.z = scene.activeCamera.position.z;
+
+            box.position.x += boxDistance / 10;
+            box.position.y += boxDistance / 25;
+            box.position.z -= boxDistance;
+
+            box.rotation.x = Math.PI;
+            box.rotation.y = Math.PI;
+
+            console.log("Box position:", box.position);
+
+            screenShare(scene, box);
+
+            engine.runRenderLoop(function () {
+                scene.render();
+            });
+        }
+
+        init();
+
+
+        // ブラウザーのリサイズイベントを監視する
+        window.addEventListener("resize", function () {
+            engine.resize();
+        });
+    </script>
+</body>
+
+</html>
